@@ -1,0 +1,95 @@
+# Offline-Kartenpakete für Erde Navi: einmal im Monat aus der Protomaps-Weltkarte (OpenStreetMap) ausschneiden
+# und als Release „latest“ ablegen – pro Land bzw. deutschem Bundesland eine PMTiles-Datei, dazu Kartenstil,
+# Schriften und Symbole (hilfsdateien.zip) und die Paketliste pakete.json, die Erde Navi liest.
+name: Kartenpakete
+
+on:
+  schedule:
+    - cron: '17 3 2 * *'   # am 2. jedes Monats, 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      nur:
+        description: 'Nur diese Regionen (Kürzel mit Komma, z. B. ch,de-be); leer = alle'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: karten
+  cancel-in-progress: false
+
+jobs:
+  pakete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Werkzeug pmtiles holen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R protomaps/go-pmtiles -p '*Linux_x86_64.tar.gz' -O pmtiles.tgz
+          tar xzf pmtiles.tgz pmtiles
+          ./pmtiles version
+
+      - name: Neueste Weltkarte von Protomaps finden
+        id: welt
+        run: |
+          for i in $(seq 0 14); do
+            d=$(date -u -d "-$i day" +%Y%m%d)
+            if curl -sfI "https://build.protomaps.com/$d.pmtiles" >/dev/null; then
+              echo "url=https://build.protomaps.com/$d.pmtiles" >> "$GITHUB_OUTPUT"
+              echo "stand=${d:0:4}-${d:4:2}-${d:6:2}" >> "$GITHUB_OUTPUT"
+              echo "Weltkarte vom $d"
+              exit 0
+            fi
+          done
+          echo "Keine Weltkarte der letzten 14 Tage gefunden" >&2
+          exit 1
+
+      - name: Regionen ausschneiden
+        env:
+          NUR: ${{ github.event.inputs.nur }}
+          WELT: ${{ steps.welt.outputs.url }}
+        run: |
+          mkdir -p aus
+          for r in $(jq -r '.[] | "\(.id)|\(.bbox | map(tostring) | join(","))"' regionen.json); do
+            id=${r%%|*}; bbox=${r#*|}
+            if [ -n "$NUR" ] && [[ ",$NUR," != *",$id,"* ]]; then continue; fi
+            echo "== $id ($bbox)"
+            ./pmtiles extract "$WELT" "aus/$id.pmtiles" --bbox="$bbox" --download-threads=4
+            ls -l "aus/$id.pmtiles"
+          done
+          df -h .
+
+      - name: Kartenstil, Schriften und Symbole
+        run: |
+          npm install --no-save --silent @protomaps/basemaps
+          node werkzeug/stil.mjs aus
+          git clone --depth 1 https://github.com/protomaps/basemaps-assets.git assets
+          mkdir -p hilfe/fonts hilfe/sprites
+          # Nur die Schriften, die der Stil braucht (Noto Sans), und die Symbole v4
+          cp -r assets/fonts/Noto\ Sans\ * hilfe/fonts/
+          cp assets/sprites/v4/light* assets/sprites/v4/dark* hilfe/sprites/
+          cp aus/stil-light.json aus/stil-dark.json hilfe/
+          (cd hilfe && zip -qr ../aus/hilfsdateien.zip .)
+          ls -l aus/hilfsdateien.zip
+
+      - name: Paketliste
+        run: node werkzeug/liste.mjs aus "${{ steps.welt.outputs.stand }}" "${{ steps.welt.outputs.url }}"
+
+      - name: Release „latest“ ersetzen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest aus/*.pmtiles aus/hilfsdateien.zip aus/pakete.json \
+            --title "Kartenpakete ${{ steps.welt.outputs.stand }}" \
+            --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps. Liste: pakete.json"
