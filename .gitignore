@@ -1,0 +1,4 @@
+grenzen/
+aus/
+*.geojson
+node_modules/

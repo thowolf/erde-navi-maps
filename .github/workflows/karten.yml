@@ -4,6 +4,10 @@
 name: Kartenpakete
 
 on:
+  # Neu bauen, wenn sich Regionen oder Werkzeuge ändern
+  push:
+    branches: [main]
+    paths: ['regionen.json', 'werkzeug/**', '.github/workflows/karten.yml']
   schedule:
     - cron: '17 3 2 * *'   # am 2. jedes Monats, 03:17 UTC
   workflow_dispatch:
@@ -54,17 +58,25 @@ jobs:
           echo "Keine Weltkarte der letzten 14 Tage gefunden" >&2
           exit 1
 
+      - name: Grenzen der Regionen (Natural Earth)
+        run: |
+          pip install --quiet shapely
+          base=https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson
+          curl -sfL -o laender.geojson "$base/ne_10m_admin_0_countries.geojson"
+          curl -sfL -o provinzen.geojson "$base/ne_10m_admin_1_states_provinces.geojson"
+          python3 werkzeug/grenzen.py laender.geojson provinzen.geojson
+
       - name: Regionen ausschneiden
         env:
           NUR: ${{ github.event.inputs.nur }}
           WELT: ${{ steps.welt.outputs.url }}
         run: |
           mkdir -p aus
-          for r in $(jq -r '.[] | "\(.id)|\(.bbox | map(tostring) | join(","))"' regionen.json); do
-            id=${r%%|*}; bbox=${r#*|}
+          # Zoom bis 14 reicht zum Fahren (die Karte vergrössert darüber selbst) und halbiert etwa die Grösse
+          for id in $(jq -r '.[].id' regionen.json); do
             if [ -n "$NUR" ] && [[ ",$NUR," != *",$id,"* ]]; then continue; fi
-            echo "== $id ($bbox)"
-            ./pmtiles extract "$WELT" "aus/$id.pmtiles" --bbox="$bbox" --download-threads=4
+            echo "== $id"
+            ./pmtiles extract "$WELT" "aus/$id.pmtiles" --region="grenzen/$id.geojson" --maxzoom=14 --download-threads=4
             ls -l "aus/$id.pmtiles"
           done
           df -h .
