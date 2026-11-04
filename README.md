@@ -10,6 +10,10 @@ aus der [Protomaps](https://protomaps.com/)-Weltkarte aus und legt sie als Relea
 
 Von Hand starten: Actions › Kartenpakete › Run workflow (optional nur einzelne Regionen, z. B. `ch,de-be`).
 
+## Datenschutz
+
+Die Datenschutzerklärung der App steht in [DATENSCHUTZ.md](DATENSCHUTZ.md) (für den Play Store).
+
 ## Lizenzen
 
 - Kartendaten © OpenStreetMap-Mitwirkende, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/)
