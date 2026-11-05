@@ -62,8 +62,8 @@ def main():
         auswahl = sorted(p for p, rahmen in alle if rahmen.intersects(flaeche))
         datei = f"{rid}.routen.tar.gz"
         entpackt = 0
-        # Feste Zeitstempel und Besitzer, damit gleiche Daten die gleiche Datei ergeben
-        with tarfile.open(os.path.join(aus, datei), "w:gz", compresslevel=9) as tar:
+        # Einfaches ustar (die App liest nur das), feste Zeitstempel: gleiche Daten ergeben die gleiche Datei
+        with tarfile.open(os.path.join(aus, datei), "w:gz", compresslevel=9, format=tarfile.USTAR_FORMAT) as tar:
             for p in auswahl:
                 inhalt = open(os.path.join(kacheln, p), "rb").read()
                 info = tarfile.TarInfo(p)
