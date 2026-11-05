@@ -1,6 +1,7 @@
 # Offline-Kartenpakete für Erde Navi: einmal im Monat aus der Protomaps-Weltkarte (OpenStreetMap) ausschneiden
 # und als Release „latest“ ablegen – pro Land bzw. deutschem Bundesland eine PMTiles-Datei, dazu Kartenstil,
 # Schriften und Symbole (hilfsdateien.zip) und die Paketliste pakete.json, die Erde Navi liest.
+# Dazu pro Region Routendaten (Valhalla) und Suchdaten (Adressen, Orte, POIs) für Erde Navi ohne Internet.
 name: Kartenpakete
 
 on:
@@ -86,22 +87,44 @@ jobs:
           done
           df -h .
 
-      # ---- Routendaten für Routen ohne Internet (Valhalla, aus OpenStreetMap) ----
-      # Ein Strassennetz für Schweiz, Österreich und Deutschland zusammen, damit Routen über die Grenze gehen.
-      # Nur Strassen für Fahrzeuge (keine Fuss- und Velowege): halbiert die Grösse.
-      - name: Platz schaffen für die Routendaten
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+      - name: Platz schaffen für Such- und Routendaten
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h .
 
-      - name: OpenStreetMap-Auszug (Geofabrik, DACH) und Strassen herausfiltern
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+      - name: OpenStreetMap-Auszug (Geofabrik, DACH)
         run: |
           sudo apt-get install -y -qq osmium-tool > /dev/null
-          mkdir -p valhalla
           curl -sfL --retry 3 -o dach.osm.pbf https://download.geofabrik.de/europe/dach-latest.osm.pbf
           ls -l dach.osm.pbf
+
+      # ---- Suchdaten für die Suche ohne Internet (Adressen, Orte, POIs) ----
+      - name: Suchdaten pro Region
+        env:
+          NUR: ${{ github.event.inputs.nur }}
+          STAND: ${{ steps.welt.outputs.stand }}
+        run: |
+          pip install --quiet osmium shapely
+          # Nur was die Suche braucht: Adressen, Orte, POIs (Wege behalten ihre Knoten für den Mittelpunkt)
+          osmium tags-filter -O -o suche.osm.pbf dach.osm.pbf \
+            nw/addr:housenumber nw/place nw/amenity nw/shop nw/tourism nw/leisure nw/historic nw/office nw/craft \
+            nw/healthcare nw/sport n/railway=station,halt,tram_stop nw/aeroway=aerodrome,terminal \
+            n/natural=peak,saddle,waterfall,glacier,spring,cave_entrance,volcano nw/highway=services,rest_area \
+            nw/public_transport=station
+          ls -l suche.osm.pbf
+          python3 werkzeug/suche.py sammeln suche.osm.pbf sammlung.db
+          rm suche.osm.pbf
+          python3 werkzeug/suche.py regionen sammlung.db aus "$NUR"
+          rm sammlung.db
+          df -h .
+
+      # ---- Routendaten für Routen ohne Internet (Valhalla, aus OpenStreetMap) ----
+      # Ein Strassennetz für Schweiz, Österreich und Deutschland zusammen, damit Routen über die Grenze gehen.
+      # Nur Strassen für Fahrzeuge (keine Fuss- und Velowege): halbiert die Grösse.
+      - name: Strassen für die Routendaten herausfiltern
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+        run: |
+          mkdir -p valhalla
           osmium tags-filter -O -o valhalla/strassen.osm.pbf dach.osm.pbf \
             w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,unclassified,residential,living_street,service,road \
             w/route=ferry,shuttle_train r/type=restriction r/boundary=administrative
@@ -151,6 +174,6 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag || true
           shopt -s nullglob
-          gh release create latest aus/*.pmtiles aus/*.routen.tar.gz aus/hilfsdateien.zip aus/pakete.json \
+          gh release create latest aus/*.pmtiles aus/*.routen.tar.gz aus/*.suche.gz aus/hilfsdateien.zip aus/pakete.json \
             --title "Kartenpakete ${{ steps.welt.outputs.stand }}" \
-            --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps, Routendaten Valhalla. Liste: pakete.json"
+            --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps, Routendaten Valhalla, Suchdaten aus OpenStreetMap. Liste: pakete.json"

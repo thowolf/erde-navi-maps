@@ -2,3 +2,4 @@ grenzen/
 aus/
 *.geojson
 node_modules/
+__pycache__/
