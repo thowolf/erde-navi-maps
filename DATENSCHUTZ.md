@@ -1,5 +1,8 @@
 # Datenschutzerklärung Erde Navi
 
+> **Aktuelle Fassung:** https://erde.holostudio.ch/navi/datenschutz/ (English: https://erde.holostudio.ch/en/navi/privacy/).
+> Diese Datei bleibt als Kopie stehen, massgebend ist die Website.
+
 [English below](#privacy-policy-erde-navi)
 
 Stand: November 2026
@@ -46,7 +49,7 @@ Die Erde-App kann ein Ziel, Zwischenziele, das Fahrzeug und auf Wunsch deinen ei
 
 ## Kontakt
 
-Fragen über die Issues dieses Repositorys: https://github.com/thowolf/erde-navi-maps/issues
+Fragen an erde@holostudio.ch oder über die Issues dieses Repositorys: https://github.com/thowolf/erde-navi-maps/issues
 
 ---
 
@@ -73,4 +76,4 @@ their own privacy policies apply.
 **Android Auto** shows the same data as the phone; nothing extra is collected. **The Erde app** can hand over a
 destination, stops, vehicle and optionally your own TomTom key on your device (link or QR code), not via a server.
 
-**Contact:** https://github.com/thowolf/erde-navi-maps/issues
+**Contact:** erde@holostudio.ch or https://github.com/thowolf/erde-navi-maps/issues · Current version: https://erde.holostudio.ch/en/navi/privacy/
