@@ -16,6 +16,11 @@ on:
         description: 'Nur diese Regionen (Kürzel mit Komma, z. B. ch,de-be); leer = alle'
         required: false
         default: ''
+      routen:
+        description: 'Auch Routendaten (Valhalla) bauen'
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: write
@@ -81,6 +86,49 @@ jobs:
           done
           df -h .
 
+      # ---- Routendaten für Routen ohne Internet (Valhalla, aus OpenStreetMap) ----
+      # Ein Strassennetz für Schweiz, Österreich und Deutschland zusammen, damit Routen über die Grenze gehen.
+      # Nur Strassen für Fahrzeuge (keine Fuss- und Velowege): halbiert die Grösse.
+      - name: Platz schaffen für die Routendaten
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h .
+
+      - name: OpenStreetMap-Auszug (Geofabrik, DACH) und Strassen herausfiltern
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+        run: |
+          sudo apt-get install -y -qq osmium-tool > /dev/null
+          mkdir -p valhalla
+          curl -sfL --retry 3 -o dach.osm.pbf https://download.geofabrik.de/europe/dach-latest.osm.pbf
+          ls -l dach.osm.pbf
+          osmium tags-filter -O -o valhalla/strassen.osm.pbf dach.osm.pbf \
+            w/highway=motorway,motorway_link,trunk,trunk_link,primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,unclassified,residential,living_street,service,road \
+            w/route=ferry,shuttle_train r/type=restriction r/boundary=administrative
+          rm dach.osm.pbf
+          ls -l valhalla/strassen.osm.pbf
+
+      - name: Valhalla-Kacheln bauen
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+        run: |
+          # Gleiche Valhalla-Version wie in der App (valhalla-mobile 0.6.4 = Valhalla 3.9.1)
+          pip install --quiet pyvalhalla==3.9.1
+          valhalla_build_config --mjolnir-tile-dir /data/kacheln --mjolnir-admin /data/admins.sqlite \
+            --mjolnir-timezone /data/tz.sqlite --mjolnir-concurrency 4 > valhalla/conf.json
+          docker run --rm -v "$PWD/valhalla:/data" -w /data --entrypoint bash ghcr.io/valhalla/valhalla:3.9.1 -c \
+            "valhalla_build_admins -c conf.json strassen.osm.pbf && valhalla_build_tiles -c conf.json strassen.osm.pbf"
+          sudo chown -R "$USER" valhalla
+          du -sh valhalla/kacheln
+
+      - name: Routendaten pro Region verpacken
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.routen != 'false'
+        env:
+          NUR: ${{ github.event.inputs.nur }}
+        run: |
+          python3 werkzeug/routen.py valhalla/kacheln aus "$NUR"
+          rm -rf valhalla
+          df -h .
+
       - name: Kartenstil, Schriften und Symbole
         run: |
           npm install --no-save --silent @protomaps/basemaps
@@ -102,6 +150,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest aus/*.pmtiles aus/hilfsdateien.zip aus/pakete.json \
+          shopt -s nullglob
+          gh release create latest aus/*.pmtiles aus/*.routen.tar.gz aus/hilfsdateien.zip aus/pakete.json \
             --title "Kartenpakete ${{ steps.welt.outputs.stand }}" \
-            --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps. Liste: pakete.json"
+            --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps, Routendaten Valhalla. Liste: pakete.json"
