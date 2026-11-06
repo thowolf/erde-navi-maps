@@ -9,3 +9,5 @@
 - Routendaten: Valhalla-Version im Workflow gleich halten wie `valhalla-mobile` in Erde Navi (sonst passen die Kacheln nicht).
 - Suchdaten (`werkzeug/suche.py`): Format über die Tabelle `meta` (version). `vereinfache()` muss genau zu
   `OfflineSuche.vereinfache()` in Erde Navi passen (klein, ohne Akzente, ß → ss), sonst findet die App nichts.
+- Tabelle `info` (Zusatzangaben zu POIs, JSON aus `INFO_SCHLUESSEL`) ist optional: Schlüsselliste gleich halten wie
+  `OrtInfo.SCHLUESSEL` in Erde Navi. Ältere App-Versionen lesen die Tabelle nicht und stören sich nicht daran.
