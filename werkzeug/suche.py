@@ -15,6 +15,9 @@ Format der Suchdatei (Version 1, Erde Navi liest sie mit dem SQLite von Android)
                            art 0 = Ort, 1 = POI, 2 = Strasse (mit Hausnummern in nr); lat/lon in 1e-5 Grad
   nr(strasse, nrn, pos)    Hausnummern einer Strasse: nrn mit „|“ getrennt, pos = Positionen als
                            Varint-Differenzen (zigzag) zur vorherigen Nummer, beginnend bei der Strasse selbst
+  info(id, tags)           Zusatzangaben zu POIs (optional, ältere Dateien haben die Tabelle nicht): tags = JSON
+                           mit ausgewählten OpenStreetMap-Merkmalen (INFO_SCHLUESSEL), z. B. opening_hours, phone,
+                           website, fuel:diesel, socket:type2, maxheight, power_supply, cuisine
   suche                    FTS4 ohne Inhalt (docid = ort.id), Tokenizer „simple“ auf vereinfachtem Text:
                            klein, ohne Akzente, ß → ss (siehe vereinfache(); Erde Navi macht dasselbe)
 POIs ohne Namen kommen nur für die Kategorien „in der Nähe“ hinein (Tankstelle, Parkplatz …), nicht in den Index.
@@ -50,6 +53,31 @@ KATEGORIEN = {
     "highway=services", "highway=rest_area", "tourism=camp_site", "tourism=caravan_site", "tourism=hotel",
     "shop=supermarket", "shop=car_repair", "amenity=sanitary_dump_station", "amenity=drinking_water",
 }
+
+# Zusatzangaben für Erde Navi (Öffnungszeiten, Kontakt, was fürs Fahrzeug zählt). Nur diese Merkmale, gekürzt.
+INFO_SCHLUESSEL = (
+    "opening_hours", "phone", "contact:phone", "website", "contact:website", "wheelchair", "fee",
+    "fuel:diesel", "fuel:lpg", "fuel:adblue", "fuel:HGV_diesel", "hgv", "brand",
+    "socket:type2", "socket:type2_combo", "socket:chademo", "socket:type2:output", "socket:type2_combo:output",
+    "maxheight", "capacity:hgv", "capacity:caravans", "motorhome", "caravans", "maxstay",
+    "power_supply", "sanitary_dump_station", "drinking_water", "shower", "dog",
+    "cuisine", "diet:vegetarian", "diet:vegan", "outdoor_seating", "takeaway",
+)
+
+
+def info(t):
+    """Ausgewählte Merkmale eines POI als kurzes JSON, oder None."""
+    d = {}
+    for k in INFO_SCHLUESSEL:
+        v = t.get(k)
+        if v:
+            d[k] = v.strip()[:200]
+    # contact:* nur, wenn das kurze Merkmal fehlt
+    for lang, kurz in (("contact:phone", "phone"), ("contact:website", "website")):
+        if lang in d:
+            d.setdefault(kurz, d.pop(lang))
+    return json.dumps(d, ensure_ascii=False, separators=(",", ":")) if d else None
+
 
 ERSATZ = {"ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "đ": "d", "ł": "l", "ı": "i", "þ": "th"}
 
@@ -90,13 +118,13 @@ def sammeln(pbf, ziel):
     db.executescript("""
         pragma journal_mode = off; pragma synchronous = off;
         create table adr(strasse text, plz text, ort text, nr text, lat int, lon int);
-        create table obj(art int, typ text, name text, zusatz text, lat int, lon int, rang int);
+        create table obj(art int, typ text, name text, zusatz text, lat int, lon int, rang int, info text);
     """)
     puffer_adr, puffer_obj = [], []
 
     def weg():
         db.executemany("insert into adr values(?,?,?,?,?,?)", puffer_adr)
-        db.executemany("insert into obj values(?,?,?,?,?,?,?)", puffer_obj)
+        db.executemany("insert into obj values(?,?,?,?,?,?,?,?)", puffer_obj)
         puffer_adr.clear()
         puffer_obj.clear()
 
@@ -114,7 +142,7 @@ def sammeln(pbf, ziel):
             name = t.get("name")
             p = t.get("place")
             if name and p in ORTE:
-                puffer_obj.append((0, p, name, "", e5(lat), e5(lon), ORTE[p]))
+                puffer_obj.append((0, p, name, "", e5(lat), e5(lon), ORTE[p], None))
             else:
                 for k in POI_SCHLUESSEL:
                     v = t.get(k)
@@ -124,7 +152,7 @@ def sammeln(pbf, ziel):
                     n = name or t.get("brand") or t.get("operator") or ""
                     if name or typ in KATEGORIEN:
                         zus = " ".join(x for x in (plz, ort or t.get("addr:place", "")) if x)
-                        puffer_obj.append((1, typ, n, zus, e5(lat), e5(lon), 1 if name else 0))
+                        puffer_obj.append((1, typ, n, zus, e5(lat), e5(lon), 1 if name else 0, info(t)))
                     break
             if len(puffer_adr) + len(puffer_obj) > 200_000:
                 weg()
@@ -186,17 +214,18 @@ def baue_region(sammlung, flaeche, ziel, region, stand):
         create table meta(k text primary key, v text);
         create table ort(id integer primary key, art int, typ text, name text, zusatz text, lat int, lon int, rang int);
         create table nr(strasse integer primary key, nrn text, pos blob);
+        create table info(id integer primary key, tags text);
         create virtual table suche using fts4(content="", text, prefix="2,3");
     """)
     db.executemany("insert into meta values(?,?)", [("version", str(VERSION)), ("region", region), ("stand", stand)])
     sel = "between ? and ? and lon between ? and ?"
     i = 0
-    zeilen_ort, zeilen_fts = [], []
+    zeilen_ort, zeilen_fts, zeilen_info = [], [], []
 
     # Orte und POIs
-    objs = drin(sammlung.execute(f"select art, typ, name, zusatz, lat, lon, rang from obj where lat {sel}", rahmen).fetchall(), 4, 5)
+    objs = drin(sammlung.execute(f"select art, typ, name, zusatz, lat, lon, rang, info from obj where lat {sel}", rahmen).fetchall(), 4, 5)
     gesehen = set()
-    for art, typ, name, zus, la, lo, rang in objs:
+    for art, typ, name, zus, la, lo, rang, inf in objs:
         # Gleiches Objekt doppelt (Punkt und Fläche) → einmal
         sch = (art, typ, name, la // 30, lo // 30)
         if sch in gesehen:
@@ -204,6 +233,8 @@ def baue_region(sammlung, flaeche, ziel, region, stand):
         gesehen.add(sch)
         i += 1
         zeilen_ort.append((i, art, typ, name, zus, la, lo, rang))
+        if inf:
+            zeilen_info.append((i, inf))
         if name:
             zeilen_fts.append((i, vereinfache(f"{name} {zus}")))
 
@@ -232,6 +263,7 @@ def baue_region(sammlung, flaeche, ziel, region, stand):
 
     db.executemany("insert into ort values(?,?,?,?,?,?,?,?)", zeilen_ort)
     db.executemany("insert into nr values(?,?,?)", zeilen_nr)
+    db.executemany("insert into info values(?,?)", zeilen_info)
     db.executemany("insert into suche(docid, text) values(?,?)", zeilen_fts)
     db.execute("create index ort_typ on ort(typ) where art = 1")
     db.commit()
@@ -240,7 +272,7 @@ def baue_region(sammlung, flaeche, ziel, region, stand):
     db.execute("vacuum")
     db.close()
     return {"orte": sum(1 for z in zeilen_ort if z[1] == 0), "pois": sum(1 for z in zeilen_ort if z[1] == 1),
-            "strassen": len(zeilen_nr), "adressen": sum(len(z[1].split("|")) for z in zeilen_nr)}
+            "strassen": len(zeilen_nr), "infos": len(zeilen_info), "adressen": sum(len(z[1].split("|")) for z in zeilen_nr)}
 
 
 def regionen(sammlung_pfad, aus, nur_text="", stand=""):
