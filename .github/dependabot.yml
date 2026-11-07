@@ -1,0 +1,13 @@
+# Dependabot meldet neue Versionen der GitHub Actions als Pull Request (einmal im Monat, gesammelt).
+# Valhalla (pyvalhalla, Docker-Bild) wird bewusst nicht angehoben: muss zu valhalla-mobile in Erde Navi passen.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'Workflows'
