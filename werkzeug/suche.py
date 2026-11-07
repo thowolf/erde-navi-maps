@@ -17,7 +17,7 @@ Format der Suchdatei (Version 1, Erde Navi liest sie mit dem SQLite von Android)
                            Varint-Differenzen (zigzag) zur vorherigen Nummer, beginnend bei der Strasse selbst
   info(id, tags)           Zusatzangaben zu POIs (optional, ältere Dateien haben die Tabelle nicht): tags = JSON
                            mit ausgewählten OpenStreetMap-Merkmalen (INFO_SCHLUESSEL), z. B. opening_hours, phone,
-                           website, fuel:diesel, socket:type2, maxheight, power_supply, cuisine
+                           website, fuel:diesel, socket:type2, maxheight, power_supply, cuisine, stars
   suche                    FTS4 ohne Inhalt (docid = ort.id), Tokenizer „simple“ auf vereinfachtem Text:
                            klein, ohne Akzente, ß → ss (siehe vereinfache(); Erde Navi macht dasselbe)
 POIs ohne Namen kommen nur für die Kategorien „in der Nähe“ hinein (Tankstelle, Parkplatz …), nicht in den Index.
@@ -62,6 +62,7 @@ INFO_SCHLUESSEL = (
     "maxheight", "capacity:hgv", "capacity:caravans", "motorhome", "caravans", "maxstay",
     "power_supply", "sanitary_dump_station", "drinking_water", "shower", "dog",
     "cuisine", "diet:vegetarian", "diet:vegan", "outdoor_seating", "takeaway",
+    "stars",
 )
 
 
