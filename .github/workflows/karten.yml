@@ -177,3 +177,35 @@ jobs:
           gh release create latest aus/*.pmtiles aus/*.routen.tar.gz aus/*.suche.gz aus/hilfsdateien.zip aus/pakete.json \
             --title "Kartenpakete ${{ steps.welt.outputs.stand }}" \
             --notes "Offline-Karten für Erde Navi, Datenstand ${{ steps.welt.outputs.stand }}. Kartendaten © OpenStreetMap-Mitwirkende (ODbL), Kacheln Protomaps, Routendaten Valhalla, Suchdaten aus OpenStreetMap. Liste: pakete.json"
+
+      - name: Upload maps to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required R2 secret: ${var}"
+              exit 1
+            fi
+          done
+
+          # Upload data packages before pakete.json so clients never see references to files that are not live yet
+          aws s3 sync aus/ "s3://${R2_BUCKET}/maps/latest/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --exclude "*" \
+            --include "*.pmtiles" \
+            --include "*.routen.tar.gz" \
+            --include "*.suche.gz" \
+            --include "hilfsdateien.zip" \
+            --cache-control "public, max-age=86400"
+
+          aws s3 cp aus/pakete.json "s3://${R2_BUCKET}/maps/latest/pakete.json" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/json" \
+            --cache-control "public, max-age=300"

@@ -12,3 +12,4 @@
 - Tabelle `info` (Zusatzangaben zu POIs, JSON aus `INFO_SCHLUESSEL`) ist optional: Schlüsselliste gleich halten wie
   `OrtInfo.SCHLUESSEL` in Erde Navi. Ältere App-Versionen lesen die Tabelle nicht und stören sich nicht daran.
 - Modelle: `.github/workflows/models.yml` (manuell, Secret `HF_TOKEN`) spiegelt EmbeddingGemma 300M in das Release `modelle` (mit `--latest=false`, damit das Karten-Release `latest` unangetastet bleibt).
+- Cloudflare R2 CDN: Workflows upload map packages to `https://cdn.erde.holostudio.ch/maps/latest/` (`karten.yml`, plus manual backfill from the `latest` release via `.github/workflows/r2-sync.yml`; `pakete.json` is always uploaded last with `max-age=300`) and EmbeddingGemma 300M to `https://cdn.erde.holostudio.ch/models/embeddinggemma-300m/` (`models.yml`), using repository secrets `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, and `R2_BUCKET`.
