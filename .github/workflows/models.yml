@@ -1,0 +1,78 @@
+# Mirrors pinned on-device ML models (EmbeddingGemma 300M) from Hugging Face into the
+# public "modelle" release with --latest=false so the "latest" maps release is unaffected.
+name: Models
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: models
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      REVISION: 459f1d37fec9635eb1730ebdbc219bfc3226c8e7
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and verify
+        run: |
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::Missing HF_TOKEN secret"
+            exit 1
+          fi
+
+          mkdir -p dist
+          cd dist
+
+          BASE="https://huggingface.co/litert-community/embeddinggemma-300m/resolve/${REVISION}"
+          curl -fsSL --retry 3 -H "Authorization: Bearer ${HF_TOKEN}" \
+            -o embeddinggemma-300M_seq512_mixed-precision.tflite \
+            "${BASE}/embeddinggemma-300M_seq512_mixed-precision.tflite"
+          curl -fsSL --retry 3 -H "Authorization: Bearer ${HF_TOKEN}" \
+            -o sentencepiece.model \
+            "${BASE}/sentencepiece.model"
+
+          cat <<'EOF' > SHA256SUMS
+          ad09e81557203cb0e177abf9bf8727dfe138a7d394aa0f70f0b2ed16432e121a  embeddinggemma-300M_seq512_mixed-precision.tflite
+          d6daa52d93d7aad10e8388bd526c4e501d914b47177398d1d9621f1fe48438c7  sentencepiece.model
+          EOF
+          sha256sum -c SHA256SUMS
+
+          cat <<EOF > GEMMA-HINWEIS.txt
+          EmbeddingGemma 300M (LiteRT, seq512, mixed-precision)
+          Source: https://huggingface.co/litert-community/embeddinggemma-300m
+          Revision: ${REVISION}
+
+          Gemma is provided under and subject to the Gemma Terms of Use found at:
+          https://ai.google.dev/gemma/terms
+
+          Use is also subject to the Gemma Prohibited Use Policy:
+          https://ai.google.dev/gemma/prohibited_use_policy
+          EOF
+
+          ls -lh
+
+      - name: Create or update "modelle" release
+        run: |
+          cd dist
+          TEXT=$(cat <<EOF
+          Mirrored EmbeddingGemma 300M model files (pinned revision \`${REVISION}\` from \`litert-community/embeddinggemma-300m\`).
+
+          Gemma is provided under and subject to the [Gemma Terms of Use](https://ai.google.dev/gemma/terms) and the [Gemma Prohibited Use Policy](https://ai.google.dev/gemma/prohibited_use_policy).
+          See \`GEMMA-HINWEIS.txt\` and \`SHA256SUMS\` for details and checksums.
+          EOF
+          )
+
+          if gh release view modelle >/dev/null 2>&1; then
+            gh release upload modelle * --clobber
+            gh release edit modelle --title "Modelle" --notes "$TEXT" --latest=false
+          else
+            gh release create modelle * --title "Modelle" --notes "$TEXT" --latest=false
+          fi

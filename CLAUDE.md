@@ -11,3 +11,4 @@
   `OfflineSuche.vereinfache()` in Erde Navi passen (klein, ohne Akzente, ß → ss), sonst findet die App nichts.
 - Tabelle `info` (Zusatzangaben zu POIs, JSON aus `INFO_SCHLUESSEL`) ist optional: Schlüsselliste gleich halten wie
   `OrtInfo.SCHLUESSEL` in Erde Navi. Ältere App-Versionen lesen die Tabelle nicht und stören sich nicht daran.
+- Modelle: `.github/workflows/models.yml` (manuell, Secret `HF_TOKEN`) spiegelt EmbeddingGemma 300M in das Release `modelle` (mit `--latest=false`, damit das Karten-Release `latest` unangetastet bleibt).
