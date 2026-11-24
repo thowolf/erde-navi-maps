@@ -1,0 +1,58 @@
+# Manually backfills the current "latest" GitHub Release map packages to Cloudflare R2
+# (https://cdn.erde.holostudio.ch/maps/latest/), uploading pakete.json last.
+name: Sync Latest Maps to R2
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: r2-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android
+          df -h .
+
+      - name: Download "latest" release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download latest --repo "${GITHUB_REPOSITORY}" --dir dist
+          ls -lh dist
+          df -h .
+
+      - name: Upload maps to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required R2 secret: ${var}"
+              exit 1
+            fi
+          done
+
+          # Upload all package files first so pakete.json never points to missing files
+          aws s3 sync dist/ "s3://${R2_BUCKET}/maps/latest/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --exclude "pakete.json" \
+            --cache-control "public, max-age=86400"
+
+          aws s3 cp dist/pakete.json "s3://${R2_BUCKET}/maps/latest/pakete.json" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/json" \
+            --cache-control "public, max-age=300"

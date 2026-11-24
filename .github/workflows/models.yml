@@ -1,5 +1,5 @@
 # Mirrors pinned on-device ML models (EmbeddingGemma 300M) from Hugging Face into the
-# public "modelle" release with --latest=false so the "latest" maps release is unaffected.
+# public "modelle" release (--latest=false) and Cloudflare R2 (models/embeddinggemma-300m/).
 name: Models
 
 on:
@@ -76,3 +76,24 @@ jobs:
           else
             gh release create modelle * --title "Modelle" --notes "$TEXT" --latest=false
           fi
+
+      - name: Upload models to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          for var in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required R2 secret: ${var}"
+              exit 1
+            fi
+          done
+
+          aws s3 cp --recursive dist/ "s3://${R2_BUCKET}/models/embeddinggemma-300m/" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "public, max-age=86400"
